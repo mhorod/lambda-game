@@ -2,8 +2,32 @@ module Main exposing (..)
 
 import Html exposing (Html, div, text)
 import Html.Attributes exposing (style)
-import Maybe exposing (withDefault)
-import String exposing (left, right)
+import Maybe
+import String
+
+
+getAt : Int -> List a -> Maybe a
+getAt n xs =
+    case xs of
+        [] ->
+            Nothing
+
+        y :: ys ->
+            if n == 0 then
+                Just y
+
+            else
+                getAt (n - 1) ys
+
+
+orElse : (() -> Maybe a) -> Maybe a -> Maybe a
+orElse deferred evaluated =
+    case evaluated of
+        Just _ ->
+            evaluated
+
+        Nothing ->
+            deferred ()
 
 
 type alias VarName =
@@ -16,50 +40,6 @@ type Lambda
     | Lam VarName Lambda
 
 
-type ReductionResult
-    = Reduced Lambda
-    | Unreduced Lambda
-
-
-mapReductionResult : (Lambda -> Lambda) -> ReductionResult -> ReductionResult
-mapReductionResult f r =
-    case r of
-        Reduced lambda ->
-            Reduced (f lambda)
-
-        Unreduced lambda ->
-            Unreduced (f lambda)
-
-
-type FullReductionResult
-    = Terminated (List Lambda)
-    | Unterminated (List Lambda)
-
-
-mapFullReductionResult : (List Lambda -> List Lambda) -> FullReductionResult -> FullReductionResult
-mapFullReductionResult f result =
-    case result of
-        Terminated xs ->
-            Terminated (f xs)
-
-        Unterminated xs ->
-            Unterminated (f xs)
-
-
-index : Int -> List a -> Maybe a
-index n xs =
-    case xs of
-        [] ->
-            Nothing
-
-        y :: ys ->
-            if n == 0 then
-                Just y
-
-            else
-                index (n - 1) ys
-
-
 lambdaToString : Lambda -> Maybe String
 lambdaToString lambda =
     let
@@ -67,7 +47,7 @@ lambdaToString lambda =
         toStringWithStack l stack =
             case l of
                 Var t ->
-                    index t stack |> Maybe.map (\name -> name ++ String.fromInt t)
+                    getAt t stack |> Maybe.map (\name -> name ++ String.fromInt t)
 
                 App f x ->
                     case ( toStringWithStack f stack, toStringWithStack x stack ) of
@@ -90,7 +70,7 @@ toDebugString lambda =
         toDebugStringWithStack l stack =
             case l of
                 Var t ->
-                    index t stack |> Maybe.map (\name -> name ++ String.fromInt t) |> withDefault (String.fromInt t)
+                    getAt t stack |> Maybe.map (\name -> name ++ String.fromInt t) |> Maybe.withDefault (String.fromInt t)
 
                 App f x ->
                     let
@@ -138,6 +118,69 @@ type alias Location =
     List Direction
 
 
+isBetaReducible : Lambda -> Bool
+isBetaReducible lambda =
+    case lambda of
+        App (Lam _ _) _ ->
+            True
+
+        _ ->
+            False
+
+
+tryBetaReduce : Lambda -> Maybe Lambda
+tryBetaReduce lambda =
+    let
+        adjustFreeVars : Int -> Lambda -> Int -> Lambda
+        adjustFreeVars increase lam depth =
+            case lam of
+                Var v ->
+                    if v < depth then
+                        Var v
+
+                    else
+                        Var (v + increase)
+
+                App left right ->
+                    App
+                        (adjustFreeVars increase left depth)
+                        (adjustFreeVars increase right depth)
+
+                Lam name body ->
+                    Lam name
+                        (adjustFreeVars increase body (depth + 1))
+
+        substituteTopVar : Int -> Lambda -> Lambda -> Lambda
+        substituteTopVar depth arg lam =
+            case lam of
+                Var v ->
+                    case compare v depth of
+                        LT ->
+                            Var v
+
+                        EQ ->
+                            adjustFreeVars depth arg 0
+
+                        GT ->
+                            Var (v - 1)
+
+                App left right ->
+                    App
+                        (substituteTopVar depth arg left)
+                        (substituteTopVar depth arg right)
+
+                Lam name body ->
+                    Lam name
+                        (substituteTopVar (depth + 1) arg body)
+    in
+    case lambda of
+        App (Lam _ body) arg ->
+            Just (substituteTopVar 0 arg body)
+
+        _ ->
+            Nothing
+
+
 findBetas : Lambda -> List Location
 findBetas lambda =
     case lambda of
@@ -158,163 +201,67 @@ findBetas lambda =
             []
 
 
-isBetaReducible : Lambda -> Bool
-isBetaReducible lambda =
-    case lambda of
-        App (Lam _ _) _ ->
-            True
+betaReduceAt : Location -> Lambda -> Maybe Lambda
+betaReduceAt location lambda =
+    case ( location, lambda ) of
+        ( [], _ ) ->
+            tryBetaReduce lambda
+
+        ( Down :: path, Lam _ body ) ->
+            betaReduceAt path body
+
+        ( Left :: path, App left _ ) ->
+            betaReduceAt path left
+
+        ( Right :: path, App _ right ) ->
+            betaReduceAt path right
 
         _ ->
-            False
+            Nothing
 
 
-isLam : Lambda -> Bool
-isLam lambda =
-    case lambda of
-        Lam _ _ ->
-            True
-
-        _ ->
-            False
-
-
-betaReduce_ : Lambda -> ReductionResult
-betaReduce_ lambda =
-    case lambda of
-        App (Lam _ body) x ->
-            Reduced (substAtDepth body x 0)
-
-        _ ->
-            Unreduced lambda
-
-
-betaReduce : Lambda -> Lambda
-betaReduce lambda =
-    getReducedLambda (betaReduce_ lambda)
-
-
-getReducedLambda : ReductionResult -> Lambda
-getReducedLambda result =
-    case result of
-        Reduced lambda ->
-            lambda
-
-        Unreduced lambda ->
-            lambda
-
-
-betaReduceAt : Lambda -> Location -> Maybe Lambda
-betaReduceAt lambda location =
-    case location of
-        [] ->
-            Just (betaReduce lambda)
-
-        dir :: dirs ->
-            case lambda of
-                Var _ ->
-                    Nothing
-
-                Lam _ body ->
-                    if dir == Down then
-                        betaReduceAt body dirs
-
-                    else
-                        Nothing
-
-                App left right ->
-                    case dir of
-                        Down ->
-                            Nothing
-
-                        Left ->
-                            betaReduceAt left dirs
-
-                        Right ->
-                            betaReduceAt right dirs
-
-
-substAtDepth lambda arg depth =
-    case lambda of
-        Var v ->
-            case compare v depth of
-                LT ->
-                    lambda
-
-                EQ ->
-                    increaseFreeVariables depth arg 0
-
-                GT ->
-                    Var (v - 1)
-
-        App f x ->
-            App (substAtDepth f arg depth) (substAtDepth x arg depth)
-
-        Lam v f ->
-            Lam v (substAtDepth f arg (depth + 1))
-
-
-increaseFreeVariables : Int -> Lambda -> Int -> Lambda
-increaseFreeVariables increase lambda depth =
-    case lambda of
-        Var v ->
-            if v < depth then
-                lambda
-
-            else
-                Var (v + increase)
-
-        App f x ->
-            App (increaseFreeVariables increase f depth) (increaseFreeVariables increase x depth)
-
-        Lam v f ->
-            Lam v (increaseFreeVariables increase f (depth + 1))
-
-
-betaReduceDfsFirst : Lambda -> ReductionResult
-betaReduceDfsFirst lambda =
+betaReduceAnywhere : Lambda -> Maybe Lambda
+betaReduceAnywhere lambda =
     case lambda of
         Var _ ->
-            Unreduced lambda
+            Nothing
 
-        Lam x body ->
-            betaReduceDfsFirst body |> mapReductionResult (\l -> Lam x l)
+        Lam name body ->
+            betaReduceAnywhere body |> Maybe.map (\b -> Lam name b)
 
         App left right ->
-            case betaReduce_ lambda of
-                Reduced r ->
-                    Reduced r
-
-                Unreduced _ ->
-                    case betaReduceDfsFirst left of
-                        Reduced r ->
-                            Reduced (App r right)
-
-                        Unreduced _ ->
-                            case betaReduceDfsFirst right of
-                                Reduced r ->
-                                    Reduced (App left r)
-
-                                Unreduced _ ->
-                                    Unreduced lambda
+            tryBetaReduce lambda
+                |> orElse (\_ -> betaReduceAnywhere left |> Maybe.map (\l -> App l right))
+                |> orElse (\_ -> betaReduceAnywhere right |> Maybe.map (\r -> App left r))
 
 
-type alias BetaReducer =
-    Lambda -> ReductionResult
+type FullReductionResult
+    = Terminated (List Lambda)
+    | Unterminated (List Lambda)
 
 
-fullyReduce : Int -> BetaReducer -> Lambda -> FullReductionResult
-fullyReduce fuel reducer lambda =
-    (case ( fuel, reducer lambda ) of
-        ( 0, Reduced _ ) ->
-            Unterminated []
+mapFullReductionResult : (List Lambda -> List Lambda) -> FullReductionResult -> FullReductionResult
+mapFullReductionResult f result =
+    case result of
+        Terminated xs ->
+            Terminated (f xs)
 
-        ( _, Reduced r ) ->
-            fullyReduce (fuel - 1) reducer r
+        Unterminated xs ->
+            Unterminated (f xs)
 
-        ( _, Unreduced _ ) ->
-            Terminated []
-    )
-        |> mapFullReductionResult (\ls -> lambda :: ls)
+
+fullyBetaReduce : Int -> Lambda -> FullReductionResult
+fullyBetaReduce fuel lambda =
+    mapFullReductionResult (\ls -> lambda :: ls) <|
+        case ( fuel, betaReduceAnywhere lambda ) of
+            ( 0, Just _ ) ->
+                Unterminated []
+
+            ( _, Just reduced ) ->
+                fullyBetaReduce (fuel - 1) reduced
+
+            ( _, Nothing ) ->
+                Terminated []
 
 
 naszaLambda =
@@ -348,14 +295,14 @@ sus2 =
 displayReductionSteps : List Lambda -> Html msg
 displayReductionSteps lambdas =
     lambdas
-        |> List.map (lambdaToString >> withDefault "error" >> text >> (\t -> div [] [ t ]))
+        |> List.map (lambdaToString >> Maybe.withDefault "error" >> text >> (\t -> div [] [ t ]))
         |> div [ style "display" "flex", style "flex-direction" "column" ]
 
 
 main =
     div []
         [ findBetas ksk |> Debug.toString |> text
-        , case fullyReduce 4 betaReduceDfsFirst skk of
+        , case fullyBetaReduce 4 skk of
             Terminated list ->
                 div [] [ text "yay", displayReductionSteps list ]
 
