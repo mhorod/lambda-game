@@ -82,9 +82,12 @@ subscriptions model =
 
 displayReductionSteps : List Lambda -> Html msg
 displayReductionSteps lambdas =
-    lambdas
-        |> List.map (lambdaToString >> Maybe.withDefault "error" >> text >> (\t -> div [] [ t ]))
-        |> div [ style "display" "flex", style "flex-direction" "column" ]
+    div [ style "display" "flex", style "flex-direction" "column" ]
+        (lambdas
+            |> List.map lambdaToString
+            |> List.map (Maybe.withDefault "error")
+            |> List.map (\t -> div [] [ text t ])
+        )
 
 
 reductionResult lambda =
