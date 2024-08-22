@@ -290,22 +290,3 @@ sus =
 
 sus2 =
     App sus sus
-
-
-displayReductionSteps : List Lambda -> Html msg
-displayReductionSteps lambdas =
-    lambdas
-        |> List.map (lambdaToString >> Maybe.withDefault "error" >> text >> (\t -> div [] [ t ]))
-        |> div [ style "display" "flex", style "flex-direction" "column" ]
-
-
-
-oldMain = div []
-        [ findBetas ksk |> Debug.toString |> text
-        , case fullyBetaReduce 4 skk of
-            Terminated list ->
-                div [] [ text "yay", displayReductionSteps list ]
-
-            Unterminated list ->
-                div [] [ text "nay", displayReductionSteps list ]
-        ]
