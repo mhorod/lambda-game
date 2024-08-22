@@ -1,10 +1,9 @@
 module LambdaParser exposing (..)
 
 import Lambda exposing (..)
-import List exposing (length, member, tail)
+import List exposing (foldl, foldr, length, member, tail)
 import Parser exposing (..)
 import String exposing (indexes)
-import List exposing (foldr, foldl)
 
 
 type ParsedLambda
@@ -91,7 +90,10 @@ buildLambda parsed =
 
 buildLambda_ : ParsedLambda -> List VarName -> Maybe Lambda
 buildLambda_ parsed varStack =
-    let _ = Debug.log "aaa" parsed in
+    let
+        _ =
+            Debug.log "aaa" parsed
+    in
     case parsed of
         PVar s ->
             index s varStack |> Maybe.map (\i -> Var i)
@@ -120,14 +122,24 @@ transform list =
 flattenApplications : List Lambda -> Maybe Lambda
 flattenApplications lambdas =
     case lambdas of
-        [] -> Nothing
-        x :: [] -> Just x
-        x :: y :: ys -> Just (flattenApplications_ (App x y) ys)
+        [] ->
+            Nothing
+
+        x :: [] ->
+            Just x
+
+        x :: y :: ys ->
+            Just (flattenApplications_ (App x y) ys)
+
 
 flattenApplications_ : Lambda -> List Lambda -> Lambda
-flattenApplications_ lambda lambdas = case lambdas of
-    [] -> lambda
-    x :: xs -> flattenApplications_ (App lambda x) xs
+flattenApplications_ lambda lambdas =
+    case lambdas of
+        [] ->
+            lambda
+
+        x :: xs ->
+            flattenApplications_ (App lambda x) xs
 
 
 index : a -> List a -> Maybe Int
