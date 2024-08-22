@@ -2,6 +2,8 @@ module LambdaParser exposing (..)
 
 import Lambda exposing (..)
 import List exposing (foldl, foldr, length, member, tail)
+import List.Extra exposing (elemIndex)
+import Maybe.Extra exposing (combine)
 import Parser exposing (..)
 import String exposing (indexes)
 
@@ -96,7 +98,7 @@ buildLambda_ parsed varStack =
     in
     case parsed of
         PVar s ->
-            index s varStack |> Maybe.map (\i -> Var i)
+            elemIndex s varStack |> Maybe.map (\i -> Var i)
 
         PLam v body ->
             if member v varStack then
@@ -106,17 +108,7 @@ buildLambda_ parsed varStack =
                 buildLambda_ body (v :: varStack) |> Maybe.map (Lam v)
 
         PApps xs ->
-            List.map (\x -> buildLambda_ x varStack) xs |> transform |> Maybe.andThen flattenApplications
-
-
-transform : List (Maybe a) -> Maybe (List a)
-transform list =
-    case list of
-        [] ->
-            Just []
-
-        x :: xs ->
-            Maybe.map2 (\y ys -> y :: ys) x (transform xs)
+            List.map (\x -> buildLambda_ x varStack) xs |> combine |> Maybe.andThen flattenApplications
 
 
 flattenApplications : List Lambda -> Maybe Lambda
@@ -140,17 +132,3 @@ flattenApplications_ lambda lambdas =
 
         x :: xs ->
             flattenApplications_ (App lambda x) xs
-
-
-index : a -> List a -> Maybe Int
-index x xs =
-    case xs of
-        [] ->
-            Nothing
-
-        y :: ys ->
-            if x == y then
-                Just 0
-
-            else
-                index x ys |> Maybe.map (\i -> i + 1)

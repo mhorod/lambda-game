@@ -2,32 +2,10 @@ module Lambda exposing (..)
 
 import Html exposing (Html, div, text)
 import Html.Attributes exposing (style)
+import List.Extra exposing (getAt)
 import Maybe
+import Maybe.Extra exposing (orElseLazy)
 import String
-
-
-getAt : Int -> List a -> Maybe a
-getAt n xs =
-    case xs of
-        [] ->
-            Nothing
-
-        y :: ys ->
-            if n == 0 then
-                Just y
-
-            else
-                getAt (n - 1) ys
-
-
-orElse : (() -> Maybe a) -> Maybe a -> Maybe a
-orElse deferred evaluated =
-    case evaluated of
-        Just _ ->
-            evaluated
-
-        Nothing ->
-            deferred ()
 
 
 type alias VarName =
@@ -231,8 +209,8 @@ betaReduceAnywhere lambda =
 
         App left right ->
             tryBetaReduce lambda
-                |> orElse (\_ -> betaReduceAnywhere left |> Maybe.map (\l -> App l right))
-                |> orElse (\_ -> betaReduceAnywhere right |> Maybe.map (\r -> App left r))
+                |> orElseLazy (\_ -> betaReduceAnywhere left |> Maybe.map (\l -> App l right))
+                |> orElseLazy (\_ -> betaReduceAnywhere right |> Maybe.map (\r -> App left r))
 
 
 type FullReductionResult
