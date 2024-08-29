@@ -1,11 +1,10 @@
 module LambdaParser exposing (..)
 
 import Lambda exposing (..)
-import List exposing (foldl, foldr, length, member, tail)
+import List
 import List.Extra exposing (elemIndex)
 import Maybe.Extra exposing (combine)
 import Parser exposing (..)
-import String exposing (indexes)
 
 
 type ParsedLambda
@@ -16,11 +15,7 @@ type ParsedLambda
 
 parseLambda : String -> Maybe Lambda
 parseLambda str =
-    let
-        parsingResult =
-            run lambdaParser str
-    in
-    case parsingResult of
+    case run lambdaParser str of
         Err _ ->
             Nothing
 
@@ -47,7 +42,8 @@ varNameParser =
 
 varParser : Parser ParsedLambda
 varParser =
-    succeed PVar |= varNameParser
+    succeed PVar
+        |= varNameParser
 
 
 lamParser : Parser ParsedLambda
@@ -74,41 +70,44 @@ parensParser =
 
 lambdaParser : Parser ParsedLambda
 lambdaParser =
-    succeed PApps |= loop [] lambdaParserHelper
+    succeed PApps
+        |= loop [] lambdaParserHelper
 
 
 lambdaParserHelper : List ParsedLambda -> Parser (Step (List ParsedLambda) (List ParsedLambda))
 lambdaParserHelper revLambdas =
     oneOf
-        [ succeed (\lambda -> Loop (lambda :: revLambdas)) |= termParser |. spaces
-        , succeed () |> map (\_ -> Done (List.reverse revLambdas))
+        [ succeed (\lambda -> Loop (lambda :: revLambdas))
+            |= termParser
+            |. spaces
+        , succeed (Done (List.reverse revLambdas))
         ]
 
 
 buildLambda : ParsedLambda -> Maybe Lambda
 buildLambda parsed =
-    buildLambda_ parsed []
+    buildLambda_ [] parsed
 
 
-buildLambda_ : ParsedLambda -> List VarName -> Maybe Lambda
-buildLambda_ parsed varStack =
-    let
-        _ =
-            Debug.log "aaa" parsed
-    in
+buildLambda_ : List VarName -> ParsedLambda -> Maybe Lambda
+buildLambda_ varStack parsed =
     case parsed of
         PVar s ->
-            elemIndex s varStack |> Maybe.map (\i -> Var i)
+            elemIndex s varStack
+                |> Maybe.map Var
 
         PLam v body ->
-            if member v varStack then
+            if List.member v varStack then
                 Nothing
 
             else
-                buildLambda_ body (v :: varStack) |> Maybe.map (Lam v)
+                buildLambda_ (v :: varStack) body
+                    |> Maybe.map (Lam v)
 
         PApps xs ->
-            List.map (\x -> buildLambda_ x varStack) xs |> combine |> Maybe.andThen flattenApplications
+            List.map (buildLambda_ varStack) xs
+                |> combine
+                |> Maybe.andThen flattenApplications
 
 
 flattenApplications : List Lambda -> Maybe Lambda
@@ -120,8 +119,8 @@ flattenApplications lambdas =
         x :: [] ->
             Just x
 
-        x :: y :: ys ->
-            Just (flattenApplications_ (App x y) ys)
+        x :: y :: zs ->
+            Just (flattenApplications_ (App x y) zs)
 
 
 flattenApplications_ : Lambda -> List Lambda -> Lambda

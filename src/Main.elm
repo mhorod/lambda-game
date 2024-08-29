@@ -2,15 +2,16 @@ module Main exposing (..)
 
 import Browser
 import Html exposing (Html, div, input, text)
-import Html.Attributes exposing (..)
+import Html.Attributes exposing (placeholder, style, value)
 import Html.Events exposing (onInput)
 import Lambda exposing (..)
 import LambdaParser exposing (parseLambda)
+import List
+import Maybe.Extra
 
 
 type alias Model =
     { userInput : String
-    , parsed : Maybe Lambda
     }
 
 
@@ -23,26 +24,26 @@ main =
         { init = init
         , view = view
         , update = update
-        , subscriptions = subscriptions
+        , subscriptions = \_ -> Sub.none
         }
 
 
-emptyModel =
-    { userInput = "", parsed = Nothing }
-
-
 init () =
-    ( emptyModel, Cmd.none )
+    ( { userInput = "" }, Cmd.none )
 
 
 view model =
     { title = "lambda game"
     , body =
+        let
+            parsed =
+                parseLambda model.userInput
+        in
         [ div []
             [ input [ placeholder "Enter your lambda here!", value model.userInput, onInput UpdateUserInput ] []
             , div []
-                (text (parsedLambdaToString model.parsed)
-                    :: Maybe.withDefault [] (model.parsed |> Maybe.map reductionResult |> Maybe.map (\x -> [ x ]))
+                (text (parsedLambdaToString parsed)
+                    :: List.map reductionResult (Maybe.Extra.toList parsed)
                 )
             ]
         ]
@@ -56,11 +57,7 @@ parsedLambdaToString maybeLambda =
             "Ooops, your lambda has a syntax error :("
 
         Just lambda ->
-            let
-                maybeStr =
-                    lambdaToString lambda
-            in
-            case maybeStr of
+            case lambdaToString lambda of
                 Just str ->
                     str
 
@@ -69,15 +66,8 @@ parsedLambdaToString maybeLambda =
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
-update msg model =
-    case msg of
-        UpdateUserInput str ->
-            ( { userInput = str, parsed = parseLambda str }, Cmd.none )
-
-
-subscriptions : Model -> Sub Msg
-subscriptions model =
-    Sub.none
+update (UpdateUserInput str) model =
+    ( { userInput = str }, Cmd.none )
 
 
 displayReductionSteps : List Lambda -> Html msg
@@ -90,6 +80,7 @@ displayReductionSteps lambdas =
         )
 
 
+reductionResult : Lambda -> Html msg
 reductionResult lambda =
     div []
         [ findBetas lambda |> Debug.toString |> text
