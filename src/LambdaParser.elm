@@ -2,20 +2,20 @@ module LambdaParser exposing (..)
 
 import Lambda exposing (..)
 import List
-import List.Extra exposing (elemIndex)
-import Maybe.Extra exposing (combine)
+import List.Extra exposing (elemIndex, foldr1)
 import Parser exposing (..)
+import Set
 
 
 type ParsedLambda
     = PVar String
-    | PApps (List ParsedLambda)
+    | PApp ParsedLambda ParsedLambda
     | PLam String ParsedLambda
 
 
 parseLambda : String -> Maybe Lambda
 parseLambda str =
-    case run lambdaParser str of
+    case run (termParser |. end) str of
         Err _ ->
             Nothing
 
@@ -25,10 +25,11 @@ parseLambda str =
 
 varNameParser : Parser String
 varNameParser =
-    getChompedString <|
-        succeed ()
-            |. chompIf Char.isLower
-            |. chompWhile (\c -> Char.isAlphaNum c || c == '_')
+    variable
+        { start = Char.isLower
+        , inner = \c -> Char.isAlphaNum c || c == '_'
+        , reserved = Set.empty
+        }
 
 
 varParser : Parser ParsedLambda
@@ -46,65 +47,41 @@ lamParser =
         |. spaces
         |. symbol "."
         |. spaces
-        |= lazy (\_ -> lambdaParser)
+        |= lazy (\_ -> termParser)
 
 
-parensParser : Parser ParsedLambda
-parensParser =
+parParser : Parser ParsedLambda
+parParser =
     succeed identity
         |. symbol "("
         |. spaces
-        |= lazy (\_ -> lambdaParser)
+        |= lazy (\_ -> termParser)
         |. spaces
         |. symbol ")"
 
 
 termParser : Parser ParsedLambda
 termParser =
-    oneOf
-        [ varParser
-        , lamParser
-        , parensParser
-        ]
-
-
-flattenApplications : List Lambda -> Maybe Lambda
-flattenApplications lambdas =
     let
-        flattenApplications_ : Lambda -> List Lambda -> Lambda
-        flattenApplications_ l ls =
-            case ls of
-                [] ->
-                    l
-
-                x :: xs ->
-                    flattenApplications_ (App l x) xs
-    in
-    case lambdas of
-        [] ->
-            Nothing
-
-        x :: [] ->
-            Just x
-
-        x :: y :: zs ->
-            Just (flattenApplications_ (App x y) zs)
-
-
-lambdaParser : Parser ParsedLambda
-lambdaParser =
-    let
-        lambdaParser_ : List ParsedLambda -> Parser (Step (List ParsedLambda) (List ParsedLambda))
-        lambdaParser_ revLambdas =
+        termHelper : List ParsedLambda -> Parser (Step (List ParsedLambda) ParsedLambda)
+        termHelper lambdas =
             oneOf
-                [ succeed (\lambda -> Loop (lambda :: revLambdas))
-                    |= termParser
+                [ succeed (\lambda -> Loop (lambda :: lambdas))
                     |. spaces
-                , succeed (Done (List.reverse revLambdas))
+                    |= oneOf [ varParser, lamParser, parParser ]
+                    |. spaces
+                , lazy
+                    (\_ ->
+                        case foldr1 (\right left -> PApp left right) lambdas of
+                            Just term ->
+                                succeed (Done term)
+
+                            Nothing ->
+                                problem "lambda terms cannot be empty nor contain empty pairs of parentheses"
+                    )
                 ]
     in
-    succeed PApps
-        |= loop [] lambdaParser_
+    loop [] termHelper
 
 
 buildLambda : ParsedLambda -> Maybe Lambda
@@ -114,20 +91,19 @@ buildLambda parsed =
         buildLambda_ varStack p =
             case p of
                 PVar s ->
-                    elemIndex s varStack
-                        |> Maybe.map Var
+                    Maybe.map Var (elemIndex s varStack)
 
                 PLam v body ->
                     if List.member v varStack then
                         Nothing
 
                     else
-                        buildLambda_ (v :: varStack) body
-                            |> Maybe.map (Lam v)
+                        Maybe.map (Lam v)
+                            (buildLambda_ (v :: varStack) body)
 
-                PApps xs ->
-                    List.map (buildLambda_ varStack) xs
-                        |> combine
-                        |> Maybe.andThen flattenApplications
+                PApp left right ->
+                    Maybe.map2 App
+                        (buildLambda_ varStack left)
+                        (buildLambda_ varStack right)
     in
     buildLambda_ [] parsed
