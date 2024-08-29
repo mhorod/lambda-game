@@ -23,15 +23,6 @@ parseLambda str =
             buildLambda parsed
 
 
-termParser : Parser ParsedLambda
-termParser =
-    oneOf
-        [ varParser
-        , lamParser
-        , parensParser
-        ]
-
-
 varNameParser : Parser String
 varNameParser =
     getChompedString <|
@@ -68,50 +59,27 @@ parensParser =
         |. symbol ")"
 
 
-lambdaParser : Parser ParsedLambda
-lambdaParser =
-    succeed PApps
-        |= loop [] lambdaParserHelper
-
-
-lambdaParserHelper : List ParsedLambda -> Parser (Step (List ParsedLambda) (List ParsedLambda))
-lambdaParserHelper revLambdas =
+termParser : Parser ParsedLambda
+termParser =
     oneOf
-        [ succeed (\lambda -> Loop (lambda :: revLambdas))
-            |= termParser
-            |. spaces
-        , succeed (Done (List.reverse revLambdas))
+        [ varParser
+        , lamParser
+        , parensParser
         ]
-
-
-buildLambda : ParsedLambda -> Maybe Lambda
-buildLambda parsed =
-    buildLambda_ [] parsed
-
-
-buildLambda_ : List VarName -> ParsedLambda -> Maybe Lambda
-buildLambda_ varStack parsed =
-    case parsed of
-        PVar s ->
-            elemIndex s varStack
-                |> Maybe.map Var
-
-        PLam v body ->
-            if List.member v varStack then
-                Nothing
-
-            else
-                buildLambda_ (v :: varStack) body
-                    |> Maybe.map (Lam v)
-
-        PApps xs ->
-            List.map (buildLambda_ varStack) xs
-                |> combine
-                |> Maybe.andThen flattenApplications
 
 
 flattenApplications : List Lambda -> Maybe Lambda
 flattenApplications lambdas =
+    let
+        flattenApplications_ : Lambda -> List Lambda -> Lambda
+        flattenApplications_ l ls =
+            case ls of
+                [] ->
+                    l
+
+                x :: xs ->
+                    flattenApplications_ (App l x) xs
+    in
     case lambdas of
         [] ->
             Nothing
@@ -123,11 +91,43 @@ flattenApplications lambdas =
             Just (flattenApplications_ (App x y) zs)
 
 
-flattenApplications_ : Lambda -> List Lambda -> Lambda
-flattenApplications_ lambda lambdas =
-    case lambdas of
-        [] ->
-            lambda
+lambdaParser : Parser ParsedLambda
+lambdaParser =
+    let
+        lambdaParser_ : List ParsedLambda -> Parser (Step (List ParsedLambda) (List ParsedLambda))
+        lambdaParser_ revLambdas =
+            oneOf
+                [ succeed (\lambda -> Loop (lambda :: revLambdas))
+                    |= termParser
+                    |. spaces
+                , succeed (Done (List.reverse revLambdas))
+                ]
+    in
+    succeed PApps
+        |= loop [] lambdaParser_
 
-        x :: xs ->
-            flattenApplications_ (App lambda x) xs
+
+buildLambda : ParsedLambda -> Maybe Lambda
+buildLambda parsed =
+    let
+        buildLambda_ : List VarName -> ParsedLambda -> Maybe Lambda
+        buildLambda_ varStack p =
+            case p of
+                PVar s ->
+                    elemIndex s varStack
+                        |> Maybe.map Var
+
+                PLam v body ->
+                    if List.member v varStack then
+                        Nothing
+
+                    else
+                        buildLambda_ (v :: varStack) body
+                            |> Maybe.map (Lam v)
+
+                PApps xs ->
+                    List.map (buildLambda_ varStack) xs
+                        |> combine
+                        |> Maybe.andThen flattenApplications
+    in
+    buildLambda_ [] parsed
