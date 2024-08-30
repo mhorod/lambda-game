@@ -23,7 +23,7 @@ varNameParser =
     variable
         { start = not << isSpecialChar
         , inner = not << isSpecialChar
-        , reserved = Set.empty
+        , reserved = Set.singleton "->"
         }
 
 
@@ -57,7 +57,7 @@ lamParser varsInScope =
                 else
                     succeed (Lam name)
                         |. spaces
-                        |. symbol "."
+                        |. oneOf [ symbol ".", symbol "->" ]
                         |. spaces
                         |= lazy (\_ -> termParser (name :: varsInScope))
             )
