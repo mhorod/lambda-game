@@ -5,13 +5,24 @@ import List
 import List.Extra exposing (elemIndex, foldr1)
 import Parser exposing (..)
 import Set
+import Unicode exposing (isSpace)
+
+
+isSpecialChar : Char -> Bool
+isSpecialChar c =
+    isSpace c || List.member c [ '\\', 'λ', '.', '(', ')' ]
+
+
+spaces : Parser ()
+spaces =
+    chompWhile isSpace
 
 
 varNameParser : Parser VarName
 varNameParser =
     variable
-        { start = Char.isLower
-        , inner = \c -> Char.isAlphaNum c || c == '_'
+        { start = not << isSpecialChar
+        , inner = not << isSpecialChar
         , reserved = Set.empty
         }
 
@@ -35,7 +46,7 @@ varParser varsInScope =
 lamParser : List VarName -> Parser Lambda
 lamParser varsInScope =
     succeed identity
-        |. symbol "\\"
+        |. oneOf [ symbol "\\", symbol "λ" ]
         |. spaces
         |= varNameParser
         |> andThen
