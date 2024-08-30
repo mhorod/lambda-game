@@ -7,23 +7,7 @@ import Parser exposing (..)
 import Set
 
 
-type ParsedLambda
-    = PVar String
-    | PApp ParsedLambda ParsedLambda
-    | PLam String ParsedLambda
-
-
-parseLambda : String -> Maybe Lambda
-parseLambda str =
-    case run (termParser |. end) str of
-        Err _ ->
-            Nothing
-
-        Ok parsed ->
-            buildLambda parsed
-
-
-varNameParser : Parser String
+varNameParser : Parser VarName
 varNameParser =
     variable
         { start = Char.isLower
@@ -32,78 +16,86 @@ varNameParser =
         }
 
 
-varParser : Parser ParsedLambda
-varParser =
-    succeed PVar
-        |= varNameParser
+varParser : List VarName -> Parser Lambda
+varParser varsInScope =
+    let
+        lookItUpInScope : VarName -> Parser Lambda
+        lookItUpInScope name =
+            case elemIndex name varsInScope of
+                Nothing ->
+                    problem (Debug.todo "explain that variables have to be in the scope")
+
+                Just v ->
+                    succeed (Var v)
+    in
+    varNameParser
+        |> andThen lookItUpInScope
 
 
-lamParser : Parser ParsedLambda
-lamParser =
-    succeed PLam
+lamParser : List VarName -> Parser Lambda
+lamParser varsInScope =
+    succeed identity
         |. symbol "\\"
         |. spaces
         |= varNameParser
-        |. spaces
-        |. symbol "."
-        |. spaces
-        |= lazy (\_ -> termParser)
+        |> andThen
+            (\name ->
+                if List.member name varsInScope then
+                    problem (Debug.todo "explain that name collisions are ambigious")
+
+                else
+                    succeed (Lam name)
+                        |. spaces
+                        |. symbol "."
+                        |. spaces
+                        |= lazy (\_ -> termParser (name :: varsInScope))
+            )
 
 
-parParser : Parser ParsedLambda
-parParser =
+parParser : List VarName -> Parser Lambda
+parParser varsInScope =
     succeed identity
         |. symbol "("
         |. spaces
-        |= lazy (\_ -> termParser)
+        |= lazy (\_ -> termParser varsInScope)
         |. spaces
         |. symbol ")"
 
 
-termParser : Parser ParsedLambda
-termParser =
+termParser : List VarName -> Parser Lambda
+termParser varsInScope =
     let
-        termHelper : List ParsedLambda -> Parser (Step (List ParsedLambda) ParsedLambda)
-        termHelper lambdas =
+        stepInTheLoop : List Lambda -> Parser (Step (List Lambda) Lambda)
+        stepInTheLoop lambdas =
             oneOf
                 [ succeed (\lambda -> Loop (lambda :: lambdas))
                     |. spaces
-                    |= oneOf [ varParser, lamParser, parParser ]
+                    |= oneOf
+                        [ varParser varsInScope
+                        , lamParser varsInScope
+                        , parParser varsInScope
+                        ]
                     |. spaces
-                , lazy
-                    (\_ ->
-                        case foldr1 (\right left -> PApp left right) lambdas of
-                            Just term ->
-                                succeed (Done term)
-
-                            Nothing ->
-                                problem "lambda terms cannot be empty nor contain empty pairs of parentheses"
-                    )
+                , lazy (\_ -> endOfTheLoop lambdas)
                 ]
+
+        endOfTheLoop : List Lambda -> Parser (Step (List Lambda) Lambda)
+        endOfTheLoop lambdas =
+            case foldr1 (\right left -> App left right) lambdas of
+                Just term ->
+                    succeed (Done term)
+
+                Nothing ->
+                    problem "lambda terms cannot be empty nor contain empty pairs of parentheses"
     in
-    loop [] termHelper
+    loop [] stepInTheLoop
 
 
-buildLambda : ParsedLambda -> Maybe Lambda
-buildLambda parsed =
-    let
-        buildLambda_ : List VarName -> ParsedLambda -> Maybe Lambda
-        buildLambda_ varStack p =
-            case p of
-                PVar s ->
-                    Maybe.map Var (elemIndex s varStack)
+parseLambda : String -> Maybe Lambda
+parseLambda str =
+    case run (termParser [] |. end) str of
+        Err _ ->
+            Nothing
 
-                PLam v body ->
-                    if List.member v varStack then
-                        Nothing
-
-                    else
-                        Maybe.map (Lam v)
-                            (buildLambda_ (v :: varStack) body)
-
-                PApp left right ->
-                    Maybe.map2 App
-                        (buildLambda_ varStack left)
-                        (buildLambda_ varStack right)
-    in
-    buildLambda_ [] parsed
+        Ok parsed ->
+            Just parsed
