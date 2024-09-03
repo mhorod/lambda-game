@@ -159,6 +159,25 @@ tryBetaReduce lambda =
             Nothing
 
 
+findAlphas : Lambda -> List Location
+findAlphas lambda =
+    case lambda of
+        Lam _ body ->
+            List.concat
+                [ [ [] ]
+                , findAlphas body |> List.map (\p -> Down :: p)
+                ]
+
+        App left right ->
+            List.concat
+                [ findAlphas left |> List.map (\p -> Left :: p)
+                , findAlphas right |> List.map (\p -> Right :: p)
+                ]
+
+        Var _ ->
+            []
+
+
 findBetas : Lambda -> List Location
 findBetas lambda =
     case lambda of
@@ -174,6 +193,45 @@ findBetas lambda =
 
         Lam _ body ->
             findBetas body |> List.map (\p -> Down :: p)
+
+        Var _ ->
+            []
+
+
+findEtas : Lambda -> List Location
+findEtas lambda =
+    let
+        containsVariable : Int -> Lambda -> Bool
+        containsVariable var lam =
+            case lam of
+                Var v ->
+                    var == v
+
+                App left right ->
+                    containsVariable var left || containsVariable var right
+
+                Lam _ body ->
+                    containsVariable (var + 1) body
+    in
+    case lambda of
+        Lam _ (App left (Var 0)) ->
+            List.concat
+                [ if containsVariable 0 left then
+                    []
+
+                  else
+                    [ [] ]
+                , findEtas left |> List.map (\p -> Down :: Left :: p)
+                ]
+
+        Lam _ body ->
+            findEtas body |> List.map (\p -> Down :: p)
+
+        App left right ->
+            List.concat
+                [ findEtas left |> List.map (\p -> Left :: p)
+                , findEtas right |> List.map (\p -> Right :: p)
+                ]
 
         Var _ ->
             []
