@@ -34,7 +34,7 @@ varParser varsInScope =
         lookItUpInScope name =
             case elemIndex name varsInScope of
                 Nothing ->
-                    problem (Debug.todo "explain that variables have to be in the scope")
+                    problem (Debug.log "varParser" "explain that variables have to be in the scope")
 
                 Just v ->
                     succeed (Var v)
@@ -52,7 +52,7 @@ lamParser varsInScope =
         |> andThen
             (\name ->
                 if List.member name varsInScope then
-                    problem (Debug.todo "explain that name collisions are ambigious")
+                    problem (Debug.log "lamParser" "explain that name collisions are ambigious")
 
                 else
                     succeed (Lam name)
@@ -97,7 +97,7 @@ termParser varsInScope =
                     succeed (Done term)
 
                 Nothing ->
-                    problem "lambda terms cannot be empty nor contain empty pairs of parentheses"
+                    problem (Debug.log "termParser" "lambda terms cannot be empty nor contain empty pairs of parentheses")
     in
     loop [] stepInTheLoop
 
